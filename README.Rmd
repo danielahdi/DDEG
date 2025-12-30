@@ -1,0 +1,25 @@
+# DDEG: Differential Data Expression Generator
+
+DDEG is an R package designed for automated RNA-seq differential expression analysis. It simplifies the transition from raw count matrices to meaningful biological insights and high-quality visualizations.
+
+## Features
+- **Smart Metadata Detection:** Automatically identifies Control/Treatment groups if metadata is not provided.
+- **Auto-Cleaning:** Automatically handles Ensembl ID versions (e.g., ENSG0000.1 -> ENSG0000) and rounds decimal counts for DESeq2 compatibility.
+- **Professional Visuals:** Generates publication-ready Volcano plots, PCA plots, and Barplots (Top 20 DEGs).
+- **Auto-Organization:** Saves all outputs in a timestamped folder.
+
+## Installation
+You can install the development version of DDEG from GitHub:
+
+```R
+if (!require("devtools")) install.packages("devtools")
+devtools::install_github("danielahdi/DDEG")
+
+Quick Start
+
+library(DDEG)
+
+# Run analysis with just a count file
+results <- run_DDEG(count_file = "your_counts.csv")
+
+
