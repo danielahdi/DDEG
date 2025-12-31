@@ -2,14 +2,16 @@
 % Please edit documentation in R/run_DDEG.R
 \name{run_DDEG}
 \alias{run_DDEG}
-\title{DDEG: Differential Data Expression Generator with WGCNA (Optimized for Speed)}
+\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (Highly Optimized & Unique Features)}
 \usage{
 run_DDEG(
   count_file,
   meta_file = NULL,
   group_column = NULL,
   p_val_cutoff = 0.05,
-  logfc_cutoff = 1
+  logfc_cutoff = 1,
+  run_enrichment = TRUE,
+  top_genes_wgcna = 8000
 )
 }
 \arguments{
@@ -17,12 +19,16 @@ run_DDEG(
 
 \item{meta_file}{(Optional) Path to the metadata file}
 
-\item{group_column}{(Optional) The column name in metadata}
+\item{group_column}{(Optional) The column name in metadata for grouping}
 
-\item{p_val_cutoff}{Cutoff for adjusted p-value (default 0.05)}
+\item{p_val_cutoff}{Adjusted p-value cutoff (default 0.05)}
 
-\item{logfc_cutoff}{Cutoff for absolute log2 fold change (default 1)}
+\item{logfc_cutoff}{Absolute log2FC cutoff (default 1)}
+
+\item{run_enrichment}{Logical: Run GO/KEGG enrichment on DEGs and WGCNA modules? (default TRUE)}
+
+\item{top_genes_wgcna}{Number of top variable genes for WGCNA (default 8000)}
 }
 \description{
-DDEG: Differential Data Expression Generator with WGCNA (Optimized for Speed)
+DDEG: Advanced Differential Expression & Co-expression Analyzer (Highly Optimized & Unique Features)
 }
