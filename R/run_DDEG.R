@@ -1,4 +1,4 @@
-#' DDEG: Differential Data Expression Generator with WGCNA
+#' DDEG: Differential Data Expression Generator with WGCNA (Optimized for Speed)
 #' @importFrom stats as.formula reorder
 #' @importFrom utils head read.csv read.table write.csv
 #' @importFrom graphics text abline par
@@ -87,95 +87,88 @@ run_DDEG <- function(count_file, meta_file = NULL, group_column = NULL, p_val_cu
     ggplot2::theme_light() +
     ggplot2::labs(title="Top 20 DEGs", x="Genes", y="Log2 Fold Change")
   ggplot2::ggsave(file.path(output_dir, "3_Top20_Barplot.png"), p_bar, width = 8, height = 8, dpi = 300)
-  # --- WGCNA Section ---
+  # --- Optimized WGCNA Section ---
   cat("\nWould you like to run WGCNA analysis? (yes/no): ")
   user_response <- readline()
   if (tolower(trimws(user_response)) %in% c("yes", "y")) {
     if (!requireNamespace("WGCNA", quietly = TRUE)) {
       BiocManager::install(c("WGCNA", "impute", "preprocessCore"), update = FALSE)
     }
-    WGCNA::allowWGCNAThreads()
-    cor <- WGCNA::cor  # رفع conflict
-    datExpr <- t(SummarizedExperiment::assay(vsd))
+    # فعال کردن multithreading
+    WGCNA::enableWGCNAThreads(nThreads = parallel::detectCores() - 1)  # استفاده حداکثری از هسته‌ها
+    cor <- WGCNA::cor
+
+    datExpr0 <- t(SummarizedExperiment::assay(vsd))
+
+    # بهینه‌سازی اصلی: فیلتر به top 5000-8000 ژن متغیر (این کار زمان TOM رو از ساعت‌ها به دقیقه کم می‌کنه)
+    nTop <- 5000  # می‌تونی به 5000 کم کنی اگر هنوز کند بود
+    rv <- matrixStats::rowVars(datExpr0)
+    select <- order(rv, decreasing = TRUE)[seq_len(min(nTop, length(rv)))]
+    datExpr <- datExpr0[, select]
+    message(paste0(">>> Filtered to top ", nTop, " most variable genes for fast WGCNA analysis."))
+
     gsg <- WGCNA::goodSamplesGenes(datExpr, verbose = 3)
-    if (!gsg$allOK) {
-      datExpr <- datExpr[, gsg$goodGenes]
-      message(">>> Removed problematic genes/samples based on goodSamplesGenes.")
-    }
-    # Sample clustering for outliers
+    if (!gsg$allOK) datExpr <- datExpr[gsg$goodSamples, gsg$goodGenes]
+
+    # Sample outlier detection
     sampleTree <- hclust(dist(datExpr), method = "average")
-    png(file.path(output_dir, "4_Sample_Clustering_Outliers.png"), width = 800, height = 600)
-    plot(sampleTree, main = "Sample Clustering to Detect Outliers", sub="", xlab="", cex.lab = 1.5, cex.axis = 1.5, cex.main = 2)
+    png(file.path(output_dir, "4_Sample_Clustering.png"), width = 1000, height = 600)
+    plot(sampleTree, main = "Sample Clustering (Outliers)", xlab = "", sub = "")
     dev.off()
-    message(">>> Check 4_Sample_Clustering_Outliers.png for potential sample outliers.")
-    # Pick soft threshold
-    sft <- WGCNA::pickSoftThreshold(datExpr, powerVector = 1:20, verbose = 5, networkType = "signed")
-    # SFT plot
-    sft_df <- data.frame(Power = sft$fitIndices[,1],
-                         SFT.R.sq = sft$fitIndices[,2],
-                         Slope = sft$fitIndices[,3])
-    p_sft <- ggplot2::ggplot(sft_df, ggplot2::aes(x = Power)) +
-      ggplot2::geom_point(ggplot2::aes(y = SFT.R.sq), color = "red") +
-      ggplot2::geom_text(ggplot2::aes(y = SFT.R.sq, label = Power), nudge_y = 0.05) +
-      ggplot2::geom_hline(yintercept = 0.85, linetype = "dashed", color = "blue") +
-      ggplot2::labs(title = "Scale-Free Topology Fit", y = "Scale-Free R^2", x = "Soft Threshold Power") +
-      ggplot2::theme_minimal()
-    ggplot2::ggsave(file.path(output_dir, "5_WGCNA_SFT_Plot.png"), p_sft, width = 8, height = 6)
-    # Choose power
+
+    # Pick soft threshold (signed برای حفظ همبستگی منفی)
+    sft <- WGCNA::pickSoftThreshold(datExpr, powerVector = 6:20, networkType = "signed", verbose = 5)
+
+    # SFT Plot
+    p_sft <- ggplot2::ggplot(data.frame(Power = sft$fitIndices[,1], R2 = sft$fitIndices[,2]),
+                             ggplot2::aes(x = Power, y = R2)) +
+      ggplot2::geom_point(color = "red") + ggplot2::geom_text(ggplot2::aes(label = Power), nudge_y = 0.05) +
+      ggplot2::geom_hline(yintercept = 0.85, linetype = "dashed") +
+      ggplot2::theme_minimal() + ggplot2::labs(title = "Scale-Free Topology Fit")
+    ggplot2::ggsave(file.path(output_dir, "5_WGCNA_SFT_Plot.png"), p_sft)
+
     softPower <- sft$powerEstimate
-    if (is.na(softPower)) {
-      softPower <- min(which(sft$fitIndices$SFT.R.sq >= 0.85))
-      if (is.na(softPower)) softPower <- 9
-    }
-    message(">>> Selected soft threshold power: ", softPower)
-    # Blockwise modules (signed network, large block size to minimize blocks)
+    if (is.na(softPower)) softPower <- 12  # fallback رایج برای signed
+
+    message(">>> Using power: ", softPower)
+
+    # BlockwiseModules با تنظیمات سریع
     net <- WGCNA::blockwiseModules(datExpr, power = softPower,
                                    TOMType = "signed", networkType = "signed",
-                                   minModuleSize = 30, verbose = 3, maxBlockSize = 25000)
-    # Save network object and module assignments
+                                   minModuleSize = 30, mergeCutHeight = 0.25,
+                                   verbose = 3, maxBlockSize = 15000,  # بلوک کوچک برای سرعت
+                                   nThreads = parallel::detectCores() - 1)
+
     saveRDS(net, file.path(output_dir, "WGCNA_Network.rds"))
     gene_modules <- data.frame(Gene = colnames(datExpr),
-                               Module = net$colors,
                                ModuleColor = WGCNA::labels2colors(net$colors))
     write.csv(gene_modules, file.path(output_dir, "WGCNA_Gene_Modules.csv"), row.names = FALSE)
-    # Dendrogram plots per block
-    n_blocks <- length(net$dendrograms)
-    for (i in seq_len(n_blocks)) {
+
+    # Dendrogram per block
+    for (i in seq_len(length(net$dendrograms))) {
       block_genes <- net$blockGenes[[i]]
-      colors_block <- net$colors[block_genes]
-      png(file.path(output_dir, paste0("6_WGCNA_Dendrogram_Block", i, ".png")), width = 1000, height = 600)
+      png(file.path(output_dir, paste0("6_Dendrogram_Block", i, ".png")), width = 1200, height = 700)
       WGCNA::plotDendroAndColors(net$dendrograms[[i]],
-                                 colors = WGCNA::labels2colors(colors_block),
-                                 rowText = NULL,
-                                 groupLabels = "Module Colors",
-                                 dendroLabels = FALSE, hang = 0.03, addGuide = TRUE)
+                                 WGCNA::labels2colors(net$colors[block_genes]),
+                                 groupLabels = "Module Colors", dendroLabels = FALSE)
       dev.off()
     }
-    # Module-trait correlations
-    message(">>> Available metadata columns: ", paste(colnames(metadata), collapse = ", "))
-    trait_col <- readline(prompt = "Enter column name for trait correlation: ")
+
+    # Trait correlation
+    message(">>> Metadata columns: ", paste(colnames(metadata), collapse = ", "))
+    trait_col <- readline(prompt = "Enter trait column (or Enter to skip): ")
     if (trimws(trait_col) != "" && trait_col %in% colnames(metadata)) {
       trait_data <- as.numeric(as.factor(metadata[[trait_col]]))
-      names(trait_data) <- rownames(metadata)
       moduleTraitCor <- WGCNA::cor(net$MEs, trait_data, use = "p")
       moduleTraitP <- WGCNA::corPvalueStudent(moduleTraitCor, nrow(datExpr))
-      png(file.path(output_dir, "7_WGCNA_Module_Trait_Heatmap.png"), width = 600, height = 800)
-      par(mar = c(6, 8.5, 3, 3))
-      WGCNA::labeledHeatmap(Matrix = moduleTraitCor,
-                            xLabels = trait_col,
-                            yLabels = names(net$MEs),
-                            ySymbols = names(net$MEs),
-                            colorLabels = FALSE,
+      png(file.path(output_dir, "7_Module_Trait_Heatmap.png"), width = 700, height = 900)
+      WGCNA::labeledHeatmap(Matrix = moduleTraitCor, xLabels = trait_col, yLabels = names(net$MEs),
                             colors = WGCNA::blueWhiteRed(50),
-                            textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
-                                               signif(moduleTraitP, 1), ")", sep = ""),
-                            setStdMargins = FALSE,
-                            cex.text = 0.8,
-                            zlim = c(-1, 1),
-                            main = paste("Module-Trait Relationships"))
+                            textMatrix = paste(signif(moduleTraitCor, 2), "\n(p=", signif(moduleTraitP, 1), ")", sep=""),
+                            cex.text = 0.9, main = "Module-Trait Relationships")
       dev.off()
     }
   }
-  message(">>> Analysis completed! Results saved in folder: ", output_dir)
+  message(">>> Analysis completed! Folder: ", output_dir)
   return(deg_results)
 }

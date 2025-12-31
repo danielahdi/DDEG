@@ -2,7 +2,7 @@
 % Please edit documentation in R/run_DDEG.R
 \name{run_DDEG}
 \alias{run_DDEG}
-\title{DDEG: Differential Data Expression Generator with WGCNA}
+\title{DDEG: Differential Data Expression Generator with WGCNA (Optimized for Speed)}
 \usage{
 run_DDEG(
   count_file,
@@ -24,5 +24,5 @@ run_DDEG(
 \item{logfc_cutoff}{Cutoff for absolute log2 fold change (default 1)}
 }
 \description{
-DDEG: Differential Data Expression Generator with WGCNA
+DDEG: Differential Data Expression Generator with WGCNA (Optimized for Speed)
 }
