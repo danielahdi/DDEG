@@ -2,7 +2,7 @@
 % Please edit documentation in R/run_DDEG.R
 \name{run_DDEG}
 \alias{run_DDEG}
-\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (Highly Optimized & Unique Features)}
+\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (Fixed & Optimized)}
 \usage{
 run_DDEG(
   count_file,
@@ -25,10 +25,10 @@ run_DDEG(
 
 \item{logfc_cutoff}{Absolute log2FC cutoff (default 1)}
 
-\item{run_enrichment}{Logical: Run GO/KEGG enrichment on DEGs and WGCNA modules? (default TRUE)}
+\item{run_enrichment}{Logical: Run GO/KEGG enrichment? (default TRUE)}
 
 \item{top_genes_wgcna}{Number of top variable genes for WGCNA (default 8000)}
 }
 \description{
-DDEG: Advanced Differential Expression & Co-expression Analyzer (Highly Optimized & Unique Features)
+DDEG: Advanced Differential Expression & Co-expression Analyzer (Fixed & Optimized)
 }
