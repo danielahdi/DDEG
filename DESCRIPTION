@@ -13,6 +13,11 @@ Imports:
     ggplot2,
     AnnotationDbi,
     org.Hs.eg.db,
-    BiocManager
+    BiocManager,
+    WGCNA,
+    dynamicTreeCut,
+    SummarizedExperiment,
+    gert,
+    usethis
 URL: https://github.com/danielahdi/DDEG
 BugReports: https://github.com/danielahdi/DDEG/issues
