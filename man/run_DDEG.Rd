@@ -2,7 +2,7 @@
 % Please edit documentation in R/run_DDEG.R
 \name{run_DDEG}
 \alias{run_DDEG}
-\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (Fixed & Optimized)}
+\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (Balanced Speed & Quality)}
 \usage{
 run_DDEG(
   count_file,
@@ -11,7 +11,8 @@ run_DDEG(
   p_val_cutoff = 0.05,
   logfc_cutoff = 1,
   run_enrichment = TRUE,
-  top_genes_wgcna = 8000
+  top_genes_wgcna = 15000,
+  use_all_filtered_genes = FALSE
 )
 }
 \arguments{
@@ -25,10 +26,12 @@ run_DDEG(
 
 \item{logfc_cutoff}{Absolute log2FC cutoff (default 1)}
 
-\item{run_enrichment}{Logical: Run GO/KEGG enrichment? (default TRUE)}
+\item{run_enrichment}{Logical: Run GO/KEGG/Reactome enrichment? (default TRUE)}
 
-\item{top_genes_wgcna}{Number of top variable genes for WGCNA (default 8000)}
+\item{top_genes_wgcna}{Number of top variable genes for WGCNA (default 15000 for better quality)}
+
+\item{use_all_filtered_genes}{Logical: Use ALL filtered genes (no variance filter) for maximum quality? (default FALSE - slower)}
 }
 \description{
-DDEG: Advanced Differential Expression & Co-expression Analyzer (Fixed & Optimized)
+DDEG: Advanced Differential Expression & Co-expression Analyzer (Balanced Speed & Quality)
 }

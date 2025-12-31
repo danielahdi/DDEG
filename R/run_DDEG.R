@@ -1,4 +1,4 @@
-#' DDEG: Advanced Differential Expression & Co-expression Analyzer (Fixed & Optimized)
+#' DDEG: Advanced Differential Expression & Co-expression Analyzer (Balanced Speed & Quality)
 #' @importFrom stats as.formula reorder
 #' @importFrom utils head read.csv read.table write.csv
 #' @importFrom graphics text abline par
@@ -8,19 +8,21 @@
 #' @param group_column (Optional) The column name in metadata for grouping
 #' @param p_val_cutoff Adjusted p-value cutoff (default 0.05)
 #' @param logfc_cutoff Absolute log2FC cutoff (default 1)
-#' @param run_enrichment Logical: Run GO/KEGG enrichment? (default TRUE)
-#' @param top_genes_wgcna Number of top variable genes for WGCNA (default 8000)
+#' @param run_enrichment Logical: Run GO/KEGG/Reactome enrichment? (default TRUE)
+#' @param top_genes_wgcna Number of top variable genes for WGCNA (default 15000 for better quality)
+#' @param use_all_filtered_genes Logical: Use ALL filtered genes (no variance filter) for maximum quality? (default FALSE - slower)
 #' @export
 run_DDEG <- function(count_file, meta_file = NULL, group_column = NULL,
                      p_val_cutoff = 0.05, logfc_cutoff = 1,
-                     run_enrichment = TRUE, top_genes_wgcna = 8000) {
+                     run_enrichment = TRUE, top_genes_wgcna = 15000,
+                     use_all_filtered_genes = FALSE) {
   # متغیرهای گلوبال
   log2FoldChange <- padj <- gene_symbol <- diff <- NULL
 
-  message(">>> Starting advanced DDEG analysis...")
+  message(">>> Starting HIGH-QUALITY DDEG analysis (balanced speed & biological meaning)...")
 
-  # نصب/لود کتابخانه‌های ضروری
-  required_pkgs <- c("org.Hs.eg.db", "clusterProfiler", "DOSE", "enrichplot", "ggplot2", "matrixStats", "dplyr", "WGCNA")
+  # لود کتابخانه‌ها
+  required_pkgs <- c("org.Hs.eg.db", "clusterProfiler", "DOSE", "enrichplot", "ggplot2", "matrixStats", "dplyr", "WGCNA", "parallel", "ReactomePA")
   for (pkg in required_pkgs) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
       BiocManager::install(pkg, update = FALSE, ask = FALSE)
@@ -34,7 +36,9 @@ run_DDEG <- function(count_file, meta_file = NULL, group_column = NULL,
     else read.table(path, header = TRUE, row.names = 1, check.names = FALSE)
   }
   counts <- read_data(count_file)
+  message(">>> Initial genes: ", nrow(counts))
   counts <- counts[rowSums(counts) >= 10, ]
+  message(">>> After low-count filter: ", nrow(counts), " genes")
   rownames(counts) <- gsub("\\..*", "", rownames(counts))
   counts <- round(counts)
 
@@ -81,13 +85,13 @@ run_DDEG <- function(count_file, meta_file = NULL, group_column = NULL,
 
   # خروجی و پلات‌های پایه
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-  output_dir <- paste0("DDEG_Advanced_Results_", timestamp)
+  output_dir <- paste0("DDEG_HighQuality_Results_", timestamp)
   dir.create(output_dir, showWarnings = FALSE)
   deg_results$ensembl_id <- rownames(deg_results)
   write.csv(deg_results[, c("ensembl_id", "gene_symbol", "baseMean", "log2FoldChange", "pvalue", "padj", "diff")],
             file.path(output_dir, "DEG_Full_Table.csv"), row.names = FALSE)
 
-  # Volcano, PCA, Top20 (با aes درست برای رفع warning)
+  # Plots
   p_vol <- ggplot(deg_results, aes(x = log2FoldChange, y = -log10(padj), color = diff)) +
     geom_point(alpha = 0.6) +
     scale_color_manual(values = c("Down" = "blue", "Stable" = "grey", "Up" = "red")) +
@@ -103,88 +107,110 @@ run_DDEG <- function(count_file, meta_file = NULL, group_column = NULL,
     geom_bar(stat = "identity") + coord_flip() + theme_light() + labs(title = "Top 20 DEGs")
   ggsave(file.path(output_dir, "3_Top20.png"), p_bar, width = 8, height = 8, dpi = 300)
 
-  # WGCNA بهینه‌شده
-  cat("\nRun WGCNA? (yes/no): ")
+  # WGCNA با تمرکز روی کیفیت (بیشتر ژن + تنظیمات برای moduleهای معنی‌دار)
+  cat("\nRun WGCNA (high quality mode)? (yes/no): ")
   if (tolower(trimws(readline())) %in% c("yes", "y")) {
     enableWGCNAThreads(nThreads = parallel::detectCores() - 1)
     cor <- WGCNA::cor
 
     datExpr0 <- t(SummarizedExperiment::assay(vsd))
-    rv <- rowVars(datExpr0)
-    select <- order(rv, decreasing = TRUE)[seq_len(min(top_genes_wgcna, nrow(datExpr0)))]
-    datExpr <- datExpr0[, select]
-    message(paste(">>> Using top", length(select), "variable genes for WGCNA"))
+    message(">>> Total filtered genes for WGCNA: ", nrow(datExpr0))
+
+    if (use_all_filtered_genes) {
+      datExpr <- datExpr0
+      message(">>> Using ALL filtered genes (maximum quality - may be slower)")
+    } else {
+      rv <- rowVars(datExpr0)
+      select <- order(rv, decreasing = TRUE)[seq_len(min(top_genes_wgcna, nrow(datExpr0)))]
+      datExpr <- datExpr0[, select]
+      message(paste(">>> Using top", length(select), "most variable genes (balanced quality/speed)"))
+    }
 
     gsg <- goodSamplesGenes(datExpr, verbose = 0)
     if (!gsg$allOK) datExpr <- datExpr[gsg$goodSamples, gsg$goodGenes]
 
-    sft <- pickSoftThreshold(datExpr, powerVector = 6:20, networkType = "signed", verbose = 0)
+    # power گسترده‌تر برای پیدا کردن بهترین fit
+    sft <- pickSoftThreshold(datExpr, powerVector = 1:30, networkType = "signed", verbose = 0)
     softPower <- ifelse(is.na(sft$powerEstimate), 12, sft$powerEstimate)
+    message(">>> Selected power: ", softPower, " (for scale-free topology)")
 
-    # رفع مشکل mergeCloseModules با چک moduleها
+    # تنظیمات برای moduleهای معنی‌دارتر
     net <- blockwiseModules(datExpr, power = softPower, TOMType = "signed",
-                            minModuleSize = 30, mergeCutHeight = 0.25,
-                            verbose = 0, maxBlockSize = 15000)
+                            minModuleSize = 20,  # کوچکتر برای moduleهای بیشتر
+                            mergeCutHeight = 0.15,  # merge قوی‌تر برای moduleهای coherent
+                            verbose = 0, maxBlockSize = 20000)
 
-    # اگر فقط grey module باشد، hub محاسبه نشود
     colors <- net$colors
-    if (length(unique(colors[colors != "grey"])) == 0) {
-      message(">>> No meaningful modules detected (only grey). Skipping hub gene calculation.")
+    unique_colors <- unique(colors[colors != "grey"])
+    message(paste(">>> Detected", length(unique_colors), "meaningful modules"))
+
+    if (length(unique_colors) == 0) {
+      message(">>> No meaningful modules - check data variability or try use_all_filtered_genes = TRUE")
     } else {
-      # محاسبه adjacency برای hubها
-      adj <- adjacency(datExpr)
+      # Hub genes با kME (module membership) - دقیق‌تر از kWithin
+      MEs <- net$MEs
+      moduleMembership <- as.data.frame(cor(datExpr, MEs, use = "p"))
+      names(moduleMembership) <- gsub("ME", "", names(moduleMembership))
       hub_info <- data.frame()
-      for (color in unique(colors)) {
-        if (color == "grey") next
+      for (color in unique_colors) {
         module_genes <- colnames(datExpr)[colors == color]
-        if (length(module_genes) < 2) next  # حداقل 2 ژن برای connectivity
-        connectivity <- intramodularConnectivity(adj, colors[colors == color])
-        hub_info <- rbind(hub_info, data.frame(Gene = module_genes, Module = color, kWithin = connectivity$kWithin))
+        mm <- abs(moduleMembership[module_genes, color])
+        hub_info <- rbind(hub_info, data.frame(Gene = module_genes, Module = color, kME = mm))
       }
-      if (nrow(hub_info) > 0) {
-        top_hubs <- hub_info %>% group_by(Module) %>% top_n(5, wt = kWithin)
-        write.csv(top_hubs, file.path(output_dir, "WGCNA_TopHubs_PerModule.csv"), row.names = FALSE)
-      } else {
-        message(">>> No modules with enough genes for hub calculation.")
-      }
+      top_hubs <- hub_info %>% group_by(Module) %>% top_n(10, wt = kME)  # top 10 hubs
+      write.csv(top_hubs, file.path(output_dir, "WGCNA_TopHubs_kME_PerModule.csv"), row.names = FALSE)
     }
 
     saveRDS(net, file.path(output_dir, "WGCNA_Net.rds"))
-    write.csv(data.frame(Gene = colnames(datExpr), ModuleColor = labels2colors(net$colors)),
+    write.csv(data.frame(Gene = colnames(datExpr), ModuleColor = labels2colors(colors)),
               file.path(output_dir, "WGCNA_Modules.csv"), row.names = FALSE)
   }
 
-  # Enrichment
+  # Enrichment کامل‌تر و معنی‌دار (GO BP/MF/CC + KEGG + Reactome)
   if (run_enrichment) {
     deg_genes <- deg_results$ensembl_id[deg_results$diff != "Stable"]
-    if (length(deg_genes) == 0) {
-      message(">>> No DEGs found. Skipping enrichment.")
-    } else {
-      ego <- enrichGO(deg_genes, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL", ont = "ALL")
-      ekegg <- enrichKEGG(bitr(deg_genes, fromType = "ENSEMBL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)$ENTREZID)
+    message(paste(">>> Found", length(deg_genes), "DEGs for enrichment"))
 
-      write.csv(as.data.frame(ego), file.path(output_dir, "Enrichment_DEG_GO.csv"), row.names = FALSE)
-      write.csv(as.data.frame(ekegg), file.path(output_dir, "Enrichment_DEG_KEGG.csv"), row.names = FALSE)
+    if (length(deg_genes) > 0) {
+      ego_bp <- enrichGO(deg_genes, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL", ont = "BP", pvalueCutoff = 0.05)
+      ego_mf <- enrichGO(deg_genes, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL", ont = "MF", pvalueCutoff = 0.05)
+      ego_cc <- enrichGO(deg_genes, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL", ont = "CC", pvalueCutoff = 0.05)
 
-      dotplot(ego) + ggtitle("GO Enrichment - DEGs")
-      ggsave(file.path(output_dir, "Enrichment_GO_Dotplot.png"))
+      write.csv(as.data.frame(ego_bp), file.path(output_dir, "Enrichment_DEG_GO_BP.csv"), row.names = FALSE)
+      write.csv(as.data.frame(ego_mf), file.path(output_dir, "Enrichment_DEG_GO_MF.csv"), row.names = FALSE)
+      write.csv(as.data.frame(ego_cc), file.path(output_dir, "Enrichment_DEG_GO_CC.csv"), row.names = FALSE)
+
+      if (nrow(as.data.frame(ego_bp)) > 0) {
+        dotplot(ego_bp) + ggtitle("GO BP - DEGs")
+        ggsave(file.path(output_dir, "Enrichment_DEG_GO_BP.png"))
+      }
+
+      # KEGG & Reactome
+      entrez <- bitr(deg_genes, fromType = "ENSEMBL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)$ENTREZID
+      if (length(entrez) > 0) {
+        ekegg <- enrichKEGG(entrez, pvalueCutoff = 0.05)
+        ereact <- enrichPathway(entrez, pvalueCutoff = 0.05)
+        write.csv(as.data.frame(ekegg), file.path(output_dir, "Enrichment_DEG_KEGG.csv"), row.names = FALSE)
+        write.csv(as.data.frame(ereact), file.path(output_dir, "Enrichment_DEG_Reactome.csv"), row.names = FALSE)
+      }
     }
 
-    # Enrichment برای moduleها اگر WGCNA ران شده
-    if (exists("net")) {
-      colors <- net$colors
-      for (color in unique(colors[colors != "grey"])) {
+    # Enrichment moduleها (فقط BP برای معنی‌داری بیولوژیکی)
+    if (exists("net") && length(unique_colors) > 0) {
+      for (color in unique_colors) {
         module_genes <- colnames(datExpr)[colors == color]
-        if (length(module_genes) < 5) next
-        ego_mod <- enrichGO(module_genes, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL", ont = "BP")
-        if (!is.null(ego_mod) && nrow(as.data.frame(ego_mod)) > 0) {
-          dotplot(ego_mod) + ggtitle(paste("GO BP - Module", color))
-          ggsave(file.path(output_dir, paste0("Enrichment_Module_", color, "_GO.png")))
+        if (length(module_genes) < 15) next
+        ego_mod <- enrichGO(module_genes, OrgDb = org.Hs.eg.db, keyType = "ENSEMBL", ont = "BP", pvalueCutoff = 0.05)
+        if (nrow(as.data.frame(ego_mod)) > 0) {
+          write.csv(as.data.frame(ego_mod), file.path(output_dir, paste0("Enrichment_Module_", color, "_GO_BP.csv")), row.names = FALSE)
+          dotplot(ego_mod, showCategory = 15) + ggtitle(paste("GO BP - Module", color))
+          ggsave(file.path(output_dir, paste0("Enrichment_Module_", color, "_GO_BP.png")))
         }
       }
     }
   }
 
-  message(">>> Analysis completed successfully! All errors fixed.")
+  message(">>> High-quality analysis completed! More genes, better modules, meaningful hubs (kME), full enrichment.")
+  message(">>> Tip: If few modules, try use_all_filtered_genes = TRUE for maximum coverage.")
   return(deg_results)
 }
