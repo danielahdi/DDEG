@@ -114,7 +114,7 @@ run_DDEG <- function(count_file, meta_file = NULL, group_column = NULL, p_val_cu
 
     if (trait_col %in% colnames(metadata)) {
       trait_data <- as.numeric(as.factor(metadata[[trait_col]]))
-      moduleTraitCor <- cor(net$MEs, trait_data, use = "p")
+      moduleTraitCor <- WGCNA::cor(net$MEs, trait_data, use = "p")
       moduleTraitPvalue <- WGCNA::corPvalueStudent(moduleTraitCor, nrow(datExpr))
 
       png(file.path(output_dir, "5_WGCNA_Heatmap.png"), width = 600, height = 800)
