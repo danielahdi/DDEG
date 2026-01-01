@@ -2,17 +2,20 @@
 % Please edit documentation in R/run_DDEG.R
 \name{run_DDEG}
 \alias{run_DDEG}
-\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (Balanced Speed & Quality)}
+\title{DDEG: Advanced Differential Expression & Co-expression Analyzer (High-quality + Visualization)}
 \usage{
 run_DDEG(
   count_file,
   meta_file = NULL,
   group_column = NULL,
+  study_design = NULL,
   p_val_cutoff = 0.05,
   logfc_cutoff = 1,
   run_enrichment = TRUE,
-  top_genes_wgcna = 15000,
-  use_all_filtered_genes = FALSE
+  run_WGCNA = TRUE,
+  top_genes_wgcna = 10000,
+  use_all_filtered_genes = FALSE,
+  maxBlockSize = 15000
 )
 }
 \arguments{
@@ -22,16 +25,22 @@ run_DDEG(
 
 \item{group_column}{(Optional) The column name in metadata for grouping}
 
+\item{study_design}{(Optional) Vector of column names in metadata for module-trait analysis}
+
 \item{p_val_cutoff}{Adjusted p-value cutoff (default 0.05)}
 
 \item{logfc_cutoff}{Absolute log2FC cutoff (default 1)}
 
 \item{run_enrichment}{Logical: Run GO/KEGG/Reactome enrichment? (default TRUE)}
 
-\item{top_genes_wgcna}{Number of top variable genes for WGCNA (default 15000 for better quality)}
+\item{run_WGCNA}{Logical: Run WGCNA analysis? (default TRUE)}
 
-\item{use_all_filtered_genes}{Logical: Use ALL filtered genes (no variance filter) for maximum quality? (default FALSE - slower)}
+\item{top_genes_wgcna}{Number of top variable genes for WGCNA (default 10000)}
+
+\item{use_all_filtered_genes}{Logical: Use all filtered genes for WGCNA (default FALSE)}
+
+\item{maxBlockSize}{Maximum genes per block for WGCNA (default 15000)}
 }
 \description{
-DDEG: Advanced Differential Expression & Co-expression Analyzer (Balanced Speed & Quality)
+DDEG: Advanced Differential Expression & Co-expression Analyzer (High-quality + Visualization)
 }
